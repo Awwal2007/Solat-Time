@@ -1,6 +1,25 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
   "routes": [
+    {
+      "src": "/service-worker.js",
+      "headers": { "cache-control": "public, max-age=0, must-revalidate" },
+      "dest": "/service-worker.js"
+    },
+    {
+      "src": "/manifest.js",
+      "headers": { "cache-control": "public, max-age=0, must-revalidate" },
+      "dest": "/manifest.js"
+    },
     {
       "src": "/(.*)",
       "dest": "/index.html"
