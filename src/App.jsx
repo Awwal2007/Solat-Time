@@ -1,66 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { BrowserRouter as Router, Route, Routes, Navigate } from "react-router-dom";
 import logo from "./assets/icon-192.png";
-
-
-const PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
+import Home from "./pages/Home";
 
 export default function App() {
-  const [times, setTimes] = useState(null);
-  const [countdown, setCountdown] = useState("Loading...");
-  const [location, setLocation] = useState("Detecting location…");
-  const [enabled, setEnabled] = useState(false);
-  const audioRef = useRef(new Audio("/adhan.mp3"));
-  const lastNotified = useRef("");
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [installed, setInstalled] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setLocation("Location not supported");
-      loadCachedTimes();
+    // Check if app is already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-
-        fetch(
-          `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
-        )
-          .then(res => res.json())
-          .then(data => {
-            setTimes(data.data.timings);
-
-            const city =
-              data.data.meta?.timezone?.replace("_", " ") || "Your location";
-
-            setLocation(city);
-
-            localStorage.setItem(
-              "times",
-              JSON.stringify(data.data.timings)
-            );
-            localStorage.setItem("location", city);
-          })
-          .catch(loadCachedTimes);
-      },
-      () => {
-        setLocation("Location denied");
-        loadCachedTimes();
-      }
-    );
-  }, []);
-
-  const loadCachedTimes = () => {
-    const cachedTimes = localStorage.getItem("times");
-    const cachedLocation = localStorage.getItem("location");
-
-    if (cachedTimes) setTimes(JSON.parse(cachedTimes));
-    if (cachedLocation) setLocation(cachedLocation);
-  };
-
-  useEffect(() => {
+    // Listen for beforeinstallprompt event
     const handler = (e) => {
       e.preventDefault();
       setInstallPrompt(e);
@@ -68,9 +22,11 @@ export default function App() {
 
     window.addEventListener("beforeinstallprompt", handler);
 
+    // Listen for app installation
     window.addEventListener("appinstalled", () => {
-      setInstalled(true);
+      setIsInstalled(true);
       setInstallPrompt(null);
+      console.log("App installed successfully!");
     });
 
     return () => {
@@ -81,400 +37,355 @@ export default function App() {
   const installApp = async () => {
     if (!installPrompt) return;
 
-    installPrompt.prompt();
-    await installPrompt.userChoice;
-
-    setInstallPrompt(null);
-  };
-
-  const notify = prayer => {
-    if (Notification.permission === "granted") {
-      new Notification("🕌 Prayer Time", {
-        body: `It's time for ${prayer}`,
-        icon: "/icon-192.png"
-      });
+    try {
+      const result = await installPrompt.prompt();
+      console.log("Install prompt result:", result);
+      
+      if (result.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+        // Navigate to Home page after installation
+        window.location.href = '/Home';
+      }
+    } catch (error) {
+      console.error("Error installing app:", error);
     }
-    audioRef.current.currentTime = 0;
-    audioRef.current.play();
   };
 
-  useEffect(() => {
-    if (!times) return;
-
-    const interval = setInterval(() => {
-      const now = new Date();
-      let next = null;
-
-      for (const p of PRAYERS) {
-        const [h, m] = times[p].split(":");
-        const t = new Date();
-        t.setHours(h, m, 0, 0);
-        if (now < t) {
-          next = { name: p, time: t };
-          break;
-        }
-      }
-
-      if (!next) {
-        const [h, m] = times.Fajr.split(":");
-        const t = new Date();
-        t.setDate(t.getDate() + 1);
-        t.setHours(h, m, 0, 0);
-        next = { name: "Fajr", time: t };
-      }
-
-      const diff = next.time - now;
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-
-      setCountdown(`Next: ${next.name} in ${h}h ${m}m ${s}s`);
-
-      PRAYERS.forEach(p => {
-        const [ph, pm] = times[p].split(":");
-        const pt = new Date();
-        pt.setHours(ph, pm, 0, 0);
-
-        if (
-          enabled &&
-          Math.abs(pt - now) < 1000 &&
-          lastNotified.current !== p
-        ) {
-          lastNotified.current = p;
-          notify(p);
-        }
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [times, enabled]);
-
-  const enableNotifications = async () => {
-    await Notification.requestPermission();
-    audioRef.current.play().catch(() => {});
-    setEnabled(true);
-  };
-
-  if (!times) return (
-    <div style={styles.loadingContainer}>
-      <div style={styles.loadingSpinner}></div>
-      <p style={styles.loadingText}>Loading prayer times…</p>
-    </div>
-  );
+  // If app is installed, automatically show Home page
+  if (isInstalled) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="/" element={<Navigate to="/Home" replace />} />
+          <Route path="/Home" element={<Home />} />
+        </Routes>
+      </Router>
+    );
+  }
 
   return (
-    <div className="app" style={styles.app}>
+    <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage installPrompt={installPrompt} installApp={installApp} />} />
+        <Route path="/Home" element={<Home />} />
+      </Routes>
+    </Router>
+  );
+}
+
+// Landing Page Component
+function LandingPage({ installPrompt, installApp }) {
+  const [isIOS, setIsIOS] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+
+  useEffect(() => {
+    // Detect iOS devices
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    setIsIOS(ios);
+    
+    // Detect Android devices
+    const android = /android/i.test(navigator.userAgent);
+    setIsAndroid(android);
+  }, []);
+
+  const handleManualRedirect = () => {
+    window.location.href = '/Home';
+  };
+
+  return (
+    <div style={styles.landingPage}>
       <div style={styles.header}>
-        <h1 style={styles.title}><img width={50} src={logo} alt="logo" /> Solat Times</h1>
-        <div style={styles.location}>📍 {location}</div>
+        <div style={styles.logoContainer}>
+          <img width={80} src={logo} alt="Solat Times Logo" style={styles.logo} />
+        </div>
+        <h1 style={styles.title}>Solat Times</h1>
+        <p style={styles.subtitle}>Your Personal Prayer Companion</p>
       </div>
 
-      <div className="card" style={styles.card}>
+      <div style={styles.features}>
+        <div style={styles.featureCard}>
+          <div style={styles.featureIcon}>🕋</div>
+          <h3 style={styles.featureTitle}>Accurate Times</h3>
+          <p style={styles.featureText}>Get precise prayer times based on your location</p>
+        </div>
 
-        <div>
-          <div style={styles.countdownContainer}>
-            <div style={styles.countdown}>{countdown}</div>
-            <div style={styles.countdownLabel}>Countdown to Next Prayer</div>
-          </div>
+        <div style={styles.featureCard}>
+          <div style={styles.featureIcon}>🔔</div>
+          <h3 style={styles.featureTitle}>Adhan Notifications</h3>
+          <p style={styles.featureText}>Gentle reminders for each prayer time</p>
+        </div>
 
-          <div style={styles.controls}>
-            {installPrompt && !installed && (
-              <button
-                onClick={installApp}
-                style={styles.installButton}
-              >
-                📲 Install App
-              </button>
-            )}
+        <div style={styles.featureCard}>
+          <div style={styles.featureIcon}>📱</div>
+          <h3 style={styles.featureTitle}>Offline Access</h3>
+          <p style={styles.featureText}>Works without internet connection</p>
+        </div>
+      </div>
 
-            {!installPrompt && /iphone|ipad/i.test(navigator.userAgent) && (
-              <div style={styles.iosTip}>
-                On iPhone/iPad: Tap Share → Add to Home Screen
-              </div>
-            )}
-
-            <button 
-              onClick={enableNotifications} 
-              disabled={enabled}
-              style={enabled ? styles.notifButtonEnabled : styles.notifButton}
+      <div style={styles.installSection}>
+        {installPrompt && (
+          <>
+            <button
+              onClick={installApp}
+              style={styles.installButton}
             >
-              {enabled ? "🔔 Notifications Enabled" : "🔕 Enable Adhan & Notifications"}
+              📲 Install App for Best Experience
             </button>
+            <p style={styles.installHint}>Get app-like experience with notifications</p>
+          </>
+        )}
 
-            <div style={styles.volumeControl}>
-              <span style={styles.volumeLabel}>Adhan Volume</span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.0001"
-                value={audioRef.current.volume}
-                onChange={e => (audioRef.current.volume = e.target.value)}
-                style={styles.volumeSlider}
-              />
-              <button onClick={audioRef.current.muted ? audioRef.current.play : audioRef.current.pause} style={{
-                background: audioRef.current.muted ? 'linear-gradient(135deg, #00b4a3, #006b5c)' : 'linear-gradient(135deg, #006b5c 0%, #00b4a3 100%)',
-                color: 'white',
-                border: 'none',
-                padding: '15px 25px',
-                borderRadius: "12px",
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 5px 15px rgba(0, 107, 92, 0.3)',
-                }}>
-
-                {audioRef.current.muted ? '🔊' : '🔇'}
-
-              </button>
-            </div>
+        {!installPrompt && isIOS && (
+          <div style={styles.manualInstall}>
+            <h3 style={styles.manualTitle}>Install on iOS</h3>
+            <ol style={styles.instructions}>
+              <li>Tap the Share button <span style={styles.iosIcon}>⎋</span></li>
+              <li>Scroll down and tap "Add to Home Screen"</li>
+              <li>Tap "Add" in the top right</li>
+            </ol>
+            <button
+              onClick={handleManualRedirect}
+              style={styles.continueButton}
+            >
+              Continue to App
+            </button>
           </div>
-        </div>
+        )}
 
-        <div style={styles.prayerTimesContainer}>
-          <h2 style={styles.prayerTitle}>Prayer Times</h2>
-          <ul style={styles.prayerList}>
-            {PRAYERS.map((p, index) => (
-              <li key={index} style={styles.prayerItem}>
-                <div style={styles.prayerInfo}>
-                  <span style={styles.prayerIcon}>🕌</span>
-                  <span style={styles.prayerName}>{p}</span>
-                </div>
-                <div style={styles.prayerTime}>
-                  <span style={styles.timeText}>{times[p]}</span>
-                  <span style={styles.timeZone}>24h</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {!installPrompt && isAndroid && (
+          <div style={styles.manualInstall}>
+            <h3 style={styles.manualTitle}>Install on Android</h3>
+            <ol style={styles.instructions}>
+              <li>Tap the menu (three dots) in Chrome</li>
+              <li>Tap "Install app" or "Add to Home screen"</li>
+              <li>Follow the prompts to install</li>
+            </ol>
+            <button
+              onClick={handleManualRedirect}
+              style={styles.continueButton}
+            >
+              Continue to App
+            </button>
+          </div>
+        )}
+
+        {!installPrompt && !isIOS && !isAndroid && (
+          <div style={styles.manualInstall}>
+            <button
+              onClick={handleManualRedirect}
+              style={styles.continueButton}
+            >
+              Launch Web App
+            </button>
+            <p style={styles.browserHint}>
+              For best experience, use Chrome or Safari and install the app when prompted
+            </p>
+          </div>
+        )}
       </div>
+      {/* <div style={styles.footer}>
+        <p style={styles.footerText}>
+          Enjoy ad-free, accurate prayer times with beautiful Adhan notifications
+        </p>
+        <button
+          onClick={handleManualRedirect}
+          style={styles.skipButton}
+        >
+          Skip & Use Web Version
+        </button>
+      </div> */}
     </div>
   );
 }
 
 const styles = {
-  app: {
+  landingPage: {
     minHeight: '100vh',
     background: 'linear-gradient(135deg, #006b5c 0%, #00b4a3 100%)',
     padding: '20px',
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-    color: '#333'
-  },
-  loadingContainer: {
+    color: 'white',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh',
-    background: 'linear-gradient(135deg, #006b5c 0%, #00b4a3 100%)',
-  },
-  loadingSpinner: {
-    width: '50px',
-    height: '50px',
-    border: `5px solid #ddd3d1`,
-    borderTop: `5px solid #00b4a3`,
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  },
-  loadingText: {
-    marginTop: '20px',
-    color: 'white',
-    fontSize: '18px',
-    fontWeight: '500'
+    justifyContent: 'space-between'
   },
   header: {
     textAlign: 'center',
-    marginBottom: '30px',
-    padding: '20px 0',
+    marginBottom: '40px',
+    padding: '30px 20px',
     background: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: '20px',
+    borderRadius: '25px',
     backdropFilter: 'blur(10px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)'
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    width: '100%',
+    maxWidth: '600px'
+  },
+  logoContainer: {
+    marginBottom: '20px'
+  },
+  logo: {
+    borderRadius: '20px',
+    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)'
   },
   title: {
-    fontSize: '2.5rem',
-    fontWeight: '700',
-    color: 'white',
+    fontSize: '3rem',
+    fontWeight: '800',
     margin: '0 0 10px 0',
-    textShadow: '2px 2px 4px rgba(0, 0, 0, 0.2)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px'
+    textShadow: '2px 2px 8px rgba(0, 0, 0, 0.3)',
+    background: 'linear-gradient(45deg, white, #ddd3d1)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text'
   },
-  location: {
+  subtitle: {
     fontSize: '1.2rem',
     color: '#ddd3d1',
-    fontWeight: '500'
+    fontWeight: '400',
+    margin: '0'
   },
-  card: {
-    background: 'white',
-    borderRadius: '25px',
-    padding: '30px',
-    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.15)',
-    maxWidth: '1000px',
-    margin: '0 auto',
-    display: 'flex',
-    gap: "20px"
-  },
-  countdownContainer: {
-    background: 'linear-gradient(135deg, #00b4a3, #006b5c)',
-    borderRadius: '15px',
-    padding: '25px',
-    textAlign: 'center',
-    marginBottom: '30px',
-    color: 'white',
-    boxShadow: '0 10px 20px rgba(0, 180, 163, 0.3)'
-  },
-  countdown: {
-    fontSize: '1.5rem',
-    fontWeight: '700',
-    marginBottom: '10px',
-    fontFamily: "'Courier New', monospace",
-    letterSpacing: '1px'
-  },
-  countdownLabel: {
-    fontSize: '0.9rem',
-    opacity: '0.9',
-    fontWeight: '500'
-  },
-  controls: {
+  features: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px',
-    marginBottom: '30px'
+    gap: '20px',
+    width: '100%',
+    maxWidth: '600px',
+    marginBottom: '40px'
+  },
+  featureCard: {
+    background: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: '20px',
+    padding: '25px',
+    textAlign: 'center',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    transition: 'transform 0.3s ease, background 0.3s ease',
+    ':hover': {
+      transform: 'translateY(-5px)',
+      background: 'rgba(255, 255, 255, 0.2)'
+    }
+  },
+  featureIcon: {
+    fontSize: '2.5rem',
+    marginBottom: '15px'
+  },
+  featureTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    margin: '0 0 10px 0',
+    color: 'white'
+  },
+  featureText: {
+    fontSize: '1rem',
+    color: '#ddd3d1',
+    margin: '0',
+    lineHeight: '1.5'
+  },
+  installSection: {
+    width: '100%',
+    maxWidth: '600px',
+    textAlign: 'center',
+    marginBottom: '40px'
   },
   installButton: {
-    background: 'linear-gradient(135deg, #006b5c, #00b4a3)',
+    background: 'linear-gradient(135deg, #00b4a3, #006b5c)',
     color: 'white',
     border: 'none',
-    padding: '15px 25px',
+    padding: '20px 30px',
+    borderRadius: '15px',
+    fontSize: '1.2rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 10px 25px rgba(0, 107, 92, 0.4)',
+    width: '100%',
+    marginBottom: '15px',
+    ':hover': {
+      transform: 'scale(1.05)',
+      boxShadow: '0 15px 30px rgba(0, 107, 92, 0.6)'
+    },
+    ':active': {
+      transform: 'scale(0.98)'
+    }
+  },
+  installHint: {
+    fontSize: '0.9rem',
+    color: '#ddd3d1',
+    margin: '0'
+  },
+  manualInstall: {
+    background: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: '20px',
+    padding: '25px',
+    border: '1px solid rgba(255, 255, 255, 0.2)'
+  },
+  manualTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    margin: '0 0 20px 0',
+    color: 'white'
+  },
+  instructions: {
+    textAlign: 'left',
+    fontSize: '1.1rem',
+    lineHeight: '1.8',
+    color: '#ddd3d1',
+    paddingLeft: '20px',
+    marginBottom: '25px'
+  },
+  iosIcon: {
+    display: 'inline-block',
+    background: 'rgba(255, 255, 255, 0.2)',
+    padding: '2px 8px',
+    borderRadius: '6px',
+    margin: '0 5px'
+  },
+  continueButton: {
+    background: '#ddd3d1',
+    color: '#006b5c',
+    border: 'none',
+    padding: '15px 30px',
     borderRadius: '12px',
-    fontSize: '1rem',
+    fontSize: '1.1rem',
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.3s ease',
-    boxShadow: '0 5px 15px rgba(0, 107, 92, 0.3)'
-  },
-  notifButton: {
-    background: '#ddd3d1',
-    color: '#333',
-    border: 'none',
-    padding: '15px 25px',
-    borderRadius: '12px',
-    fontSize: '1rem',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.3s ease'
-  },
-  notifButtonEnabled: {
-    background: 'linear-gradient(135deg, #00b4a3, #006b5c)',
-    color: 'white',
-    border: 'none',
-    padding: '15px 25px',
-    borderRadius: '12px',
-    fontSize: '1rem',
-    fontWeight: '600',
-    cursor: 'default',
-    boxShadow: '0 5px 15px rgba(0, 180, 163, 0.3)'
-  },
-  iosTip: {
-    fontSize: '0.85rem',
-    textAlign: 'center',
-    color: '#666',
-    backgroundColor: '#f8f9fa',
-    padding: '12px',
-    borderRadius: '10px',
-    border: '1px solid #eee'
-  },
-  volumeControl: {
-    backgroundColor: '#f8f9fa',
-    padding: '20px',
-    borderRadius: '15px',
-    border: '1px solid #eee'
-  },
-  volumeLabel: {
-    display: 'block',
-    marginBottom: '10px',
-    fontSize: '0.9rem',
-    fontWeight: '600',
-    color: '#555'
-  },
-  volumeSlider: {
     width: '100%',
-    height: '8px',
-    borderRadius: '4px',
-    background: 'linear-gradient(to right, #ddd3d1, #00b4a3)',
-    outline: 'none',
-    WebkitAppearance: 'none',
-    marginButton: "30px",
-    cursor: 'pointer'
-  },
-  prayerTimesContainer: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: '20px',
-    padding: '25px',
-    border: '1px solid #eee',
-    width: '100%'
-  },
-  prayerTitle: {
-    fontSize: '1.5rem',
-    fontWeight: '700',
-    color: '#006b5c',
-    margin: '0 0 20px 0',
-    textAlign: 'center'
-  },
-  prayerList: {
-    listStyle: 'none',
-    padding: '0',
-    margin: '0'
-  },
-  prayerItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '18px 20px',
-    marginBottom: '12px',
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    borderLeft: '5px solid #00b4a3',
-    boxShadow: '0 3px 10px rgba(0, 0, 0, 0.05)',
-    transition: 'transform 0.2s ease',
     ':hover': {
-      transform: 'translateX(5px)'
+      background: 'white',
+      transform: 'scale(1.02)'
     }
   },
-  prayerInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '15px'
+  browserHint: {
+    fontSize: '0.9rem',
+    color: '#ddd3d1',
+    margin: '15px 0 0 0',
+    fontStyle: 'italic'
   },
-  prayerIcon: {
-    fontSize: '1.2rem'
+  footer: {
+    textAlign: 'center',
+    width: '100%',
+    maxWidth: '600px'
   },
-  prayerName: {
-    fontSize: '1.1rem',
-    fontWeight: '600',
-    color: '#333'
+  footerText: {
+    fontSize: '1rem',
+    color: '#ddd3d1',
+    marginBottom: '20px',
+    lineHeight: '1.5'
   },
-  prayerTime: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: '5px'
-  },
-  timeText: {
-    fontSize: '1.3rem',
-    fontWeight: '700',
-    color: '#006b5c'
-  },
-  timeZone: {
-    fontSize: '0.75rem',
-    color: '#888',
-    backgroundColor: '#f0f0f0',
-    padding: '2px 8px',
-    borderRadius: '10px'
+  skipButton: {
+    background: 'transparent',
+    color: '#ddd3d1',
+    border: '2px solid #ddd3d1',
+    padding: '12px 25px',
+    borderRadius: '10px',
+    fontSize: '1rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    ':hover': {
+      background: 'rgba(221, 211, 209, 0.1)',
+      color: 'white'
+    }
   }
 };
