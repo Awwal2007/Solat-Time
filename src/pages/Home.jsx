@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import logo from "../assets/icon-192.png";
+import '../index.css'
 
 const PRAYERS = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
 
@@ -200,7 +201,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="card" style={styles.card}>
+      <div className="card">
         <div style={styles.leftColumn}>
           <div style={styles.countdownContainer}>
             <div style={styles.countdown}>{countdown}</div>
@@ -242,7 +243,7 @@ export default function Home() {
                 </button>
               </div>
               
-              <div style={styles.volumeSliderContainer}>
+              <div className="volume-slider-control" style={styles.volumeSliderContainer}>
                 <span style={styles.volumeIcon}>🔈</span>
                 <input
                   type="range"
@@ -268,7 +269,7 @@ export default function Home() {
             </h2>
             <ul style={styles.prayerList}>
               {PRAYERS.map((prayer, index) => (
-                <li key={index} style={styles.prayerItem}>
+                <li className="prayer-item" key={index} style={styles.prayerItem}>
                   <div style={styles.prayerInfo}>
                     <div style={styles.prayerIconContainer}>
                       <span style={styles.prayerIcon}>
@@ -288,7 +289,7 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  <div style={styles.prayerTime}>
+                  <div className="prayer-time" style={styles.prayerTime}>
                     <span style={styles.timeText}>{times[prayer]}</span>
                     <div style={styles.timeBadge}>
                       <span style={styles.timeZone}>24h</span>
@@ -384,19 +385,7 @@ const styles = {
     alignItems: 'center',
     gap: '8px'
   },
-  card: {
-    background: 'white',
-    borderRadius: '28px',
-    padding: '35px',
-    boxShadow: '0 25px 50px rgba(0, 0, 0, 0.15)',
-    maxWidth: '1200px',
-    margin: '0 auto',
-    display: 'grid',
-    gridTemplateColumns: '1fr 1.2fr',
-    gap: "35px",
-    position: 'relative',
-    overflow: 'hidden'
-  },
+
 //   card: {
 //     background: 'white',
 //     borderRadius: '28px',
@@ -413,10 +402,11 @@ const styles = {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: '30px'
+    gap: '30px',
+    width: '100%' ,
   },
   rightColumn: {
-    flex: 1.2
+    width: "100%"
   },
   countdownContainer: {
     background: 'linear-gradient(135deg, #00b4a3, #006b5c)',
@@ -581,7 +571,7 @@ const styles = {
   prayerTimesContainer: {
     backgroundColor: '#f8f9fa',
     borderRadius: '22px',
-    padding: '30px',
+    padding: '15px',
     border: '1px solid #eee',
     height: '100%',
     display: 'flex',
