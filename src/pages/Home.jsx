@@ -22,42 +22,80 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setLocation("Location not supported");
-      loadCachedTimes();
-      return;
+    if (Notification.permission === "granted") {
+      setEnabled(true);
     }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-
-        fetch(
-          `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
-        )
-          .then(res => res.json())
-          .then(data => {
-            setTimes(data.data.timings);
-
-            const city =
-              data.data.meta?.timezone?.replace("_", " ") || "Your location";
-
-            setLocation(city);
-
-            localStorage.setItem(
-              "times",
-              JSON.stringify(data.data.timings)
-            );
-            localStorage.setItem("location", city);
-          })
-          .catch(loadCachedTimes);
-      },
-      () => {
-        setLocation("Location denied");
-        loadCachedTimes();
-      }
-    );
   }, []);
+
+
+  useEffect(() => {
+    fetchPrayerTimes()
+  }, []);
+
+
+  const fetchPrayerTimes = async () => {
+    try {
+      if (!navigator.geolocation) throw new Error();
+
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej)
+      );
+
+      const { latitude, longitude } = pos.coords;
+
+      const res = await fetch(
+        `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
+      );
+
+      const data = await res.json();
+      
+      const timings = data.data.timings;
+
+      setTimes(timings);
+      setLocation(data.data.meta?.timezone || "Your location");
+
+      localStorage.setItem("times", JSON.stringify(timings));
+      localStorage.setItem(
+        "location",
+        data.data.meta?.timezone || "Your location"
+      );
+
+      // 🔔 Re-schedule alarms if notifications enabled
+      if (enabled) {
+        schedulePrayerAlarms(timings);
+      } 
+    } catch {
+      loadCachedTimes();
+    }
+  };
+
+  useEffect(() => {
+    if (!navigator.serviceWorker) return;
+
+    const handler = (event) => {
+      if (event.data?.type === "REFRESH_PRAYER_TIMES") {
+        fetchPrayerTimes();
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handler);
+
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", handler);
+  }, [enabled]);
+
+
+  useEffect(() => {
+    const last = localStorage.getItem("lastRefresh");
+    const today = new Date().toDateString();
+
+    if (last !== today) {
+      fetchPrayerTimes();
+      localStorage.setItem("lastRefresh", today);
+    }
+  }, []);
+
+
 
   const loadCachedTimes = () => {
     const cachedTimes = localStorage.getItem("times");
@@ -94,28 +132,38 @@ export default function Home() {
     setInstallPrompt(null);
   };
 
-  const notify = prayer => {
-    if (Notification.permission === "granted") {
-      new Notification("🕌 Prayer Time", {
-        body: `It's time for ${prayer}`,
-        icon: "/icon-192.png"
-      });
-    }
-    if (!isMuted) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch((err) => {
-        console.log(err);
-      });
-    }
-  };
+  // const notify = (prayer) => {
+  //   if (!("Notification" in window)) {
+  //     console.log("Notifications not supported");
+  //     return;
+  //   }
+
+  //   console.log("Notifying for:", prayer);
+
+  //   if (Notification.permission === "granted") {
+  //     new Notification("🕌 Prayer Time", {
+  //       body: `It's time for ${prayer}`,
+  //       icon: "/icon-192.png",
+  //       tag: prayer // prevents duplicates
+  //     });
+  //   } else {
+  //     console.log("Permission:", Notification.permission);
+  //   }
+
+  //   if (!isMuted) {
+  //     audioRef.current.currentTime = 0;
+  //     audioRef.current.play().catch(console.error);
+  //   }
+  // };
+
 
   useEffect(() => {
     if (!times) return;
 
-    const interval = setInterval(() => {
+    const id = setInterval(() => {
       const now = new Date();
-      let next = null;
 
+      let next;
       for (const p of PRAYERS) {
         const [h, m] = times[p].split(":");
         const t = new Date();
@@ -140,32 +188,39 @@ export default function Home() {
       const s = Math.floor((diff % 60000) / 1000);
 
       setCountdown(`${next.name} in ${h}h ${m}m ${s}s`);
-
-      PRAYERS.forEach(p => {
-        const [ph, pm] = times[p].split(":");
-        const pt = new Date();
-        pt.setHours(ph, pm, 0, 0);
-
-        if (
-          enabled &&
-          Math.abs(pt - now) < 1000 &&
-          lastNotified.current !== p
-        ) {
-          lastNotified.current = p;
-          notify(p);
-        }
-      });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [times, enabled, isMuted]);
+    return () => clearInterval(id);
+  }, [times]);
 
   const enableNotifications = async () => {
     const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      setEnabled(true);
-    }
+    if (permission !== "granted") return;
+
+    new Notification("Notification Permission", { body: "Notification permission granted!", icon: "/icon-192.png" });
+
+    setEnabled(true);
+    schedulePrayerAlarms(times);
   };
+
+  const schedulePrayerAlarms = async (times) => {
+    const reg = await navigator.serviceWorker.ready;
+
+    const alarms = Object.entries(times).map(([name, t]) => {
+      const [h, m] = t.split(":");
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      if (d < new Date()) d.setDate(d.getDate() + 1);
+
+      return { name, time: d.getTime() };
+    });
+
+    reg.active.postMessage({
+      type: "SET_PRAYER_ALARMS",
+      alarms
+    });
+  };
+
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
@@ -550,7 +605,7 @@ const styles = {
     outline: 'none',
     WebkitAppearance: 'none',
     cursor: 'pointer',
-    '&::-webkit-slider-thumb': {
+    '&::WebkitSliderThumb': {
       WebkitAppearance: 'none',
       width: '22px',
       height: '22px',
